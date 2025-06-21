@@ -1,12 +1,8 @@
 import { SYSTEM_PROMPT_DEFAULT } from "@/lib/config"
 import type { ProviderWithoutOllama } from "@/lib/user-keys"
 import { Attachment } from "@ai-sdk/ui-utils"
-import { Message as MessageAISDK, streamText, ToolSet } from "ai"
-import {
-  logUserMessage,
-  storeAssistantMessage,
-  validateAndTrackUsage,
-} from "./api"
+import { Message as MessageAISDK } from "ai"
+import { logUserMessage } from "./api"
 import { createErrorResponse, extractErrorMessage } from "./utils"
 
 export const maxDuration = 60
@@ -40,17 +36,11 @@ export async function POST(req: Request) {
       )
     }
 
-    const supabase = await validateAndTrackUsage({
-      userId,
-      model,
-      isAuthenticated,
-    })
-
     const userMessage = messages[messages.length - 1]
 
-    if (supabase && userMessage?.role === "user") {
+    if (userMessage?.role === "user") {
+      // Log user message here
       await logUserMessage({
-        supabase,
         userId,
         chatId,
         content: userMessage.content,
@@ -60,15 +50,10 @@ export async function POST(req: Request) {
       })
     }
 
-    const allModels = await getAllModels()
-    const modelConfig = allModels.find((m) => m.id === model)
-
-    if (!modelConfig || !modelConfig.apiSdk) {
-      throw new Error(`Model ${model} not found`)
-    }
-
+    // Prepare the system prompt
     const effectiveSystemPrompt = systemPrompt || SYSTEM_PROMPT_DEFAULT
 
+    // If the user is authenticated, set API key (if necessary)
     let apiKey: string | undefined
     if (isAuthenticated && userId) {
       const { getEffectiveApiKey } = await import("@/lib/user-keys")
@@ -78,37 +63,61 @@ export async function POST(req: Request) {
         undefined
     }
 
-    const result = streamText({
-      model: modelConfig.apiSdk(apiKey, { enableSearch }),
-      system: effectiveSystemPrompt,
-      messages: messages,
-      tools: {} as ToolSet,
-      maxSteps: 10,
-      onError: (err: unknown) => {
-        console.error("Streaming error occurred:", err)
-        // Don't set streamError anymore - let the AI SDK handle it through the stream
+    // Prepare the API payload
+    const payload = {
+      inputs: {
+        prompt: effectiveSystemPrompt + "\n" + userMessage.content, // Sending the system prompt + user message to HuggingFace
+        enable_search: enableSearch,
       },
+    }
 
-      onFinish: async ({ response }) => {
-        if (supabase) {
-          await storeAssistantMessage({
-            supabase,
-            chatId,
-            messages:
-              response.messages as unknown as import("@/app/types/api.types").Message[],
-          })
-        }
+    // HuggingFace API URL (replace with your HuggingFace space endpoint)
+    const huggingFaceURL = "https://mirxakamran893-logiqcurvecode.hf.space/chat"
+
+    // Call HuggingFace API
+    const response = await fetch(huggingFaceURL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`, // If you need authentication
       },
+      body: JSON.stringify(payload),
     })
 
-    return result.toDataStreamResponse({
-      sendReasoning: true,
-      sendSources: true,
-      getErrorMessage: (error: unknown) => {
-        console.error("Error forwarded to client:", error)
-        return extractErrorMessage(error)
-      },
-    })
+    if (!response.ok) {
+      throw new Error(`HuggingFace API request failed with status: ${response.status}`)
+    }
+
+    // Get the response from HuggingFace
+    const responseData = await response.json()
+
+    // Ensure we have a valid response from HuggingFace
+    if (!responseData || !responseData.message) {
+      throw new Error("Invalid response from HuggingFace API")
+    }
+
+    const assistantMessage = responseData.message
+
+    // Log assistant message
+    if (userId) {
+      // Assuming a `storeAssistantMessage` method to store the assistant's response
+      await storeAssistantMessage({
+        chatId,
+        messages: [
+          {
+            role: "assistant",
+            content: assistantMessage,
+            sender: "assistant",
+          },
+        ], // Assuming response is an array of messages from HuggingFace
+      })
+    }
+
+    // Return the result to the client
+    return new Response(
+      JSON.stringify({ message: assistantMessage }),
+      { status: 200 }
+    )
   } catch (err: unknown) {
     console.error("Error in /api/chat:", err)
     const error = err as {
