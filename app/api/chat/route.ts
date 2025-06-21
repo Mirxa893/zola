@@ -2,8 +2,9 @@ import { SYSTEM_PROMPT_DEFAULT } from "@/lib/config"
 import type { ProviderWithoutOllama } from "@/lib/user-keys"
 import { Attachment } from "@ai-sdk/ui-utils"
 import { Message as MessageAISDK } from "ai"
-import { logUserMessage } from "./api"
+import { logUserMessage, storeAssistantMessage } from "./api"
 import { createErrorResponse, extractErrorMessage } from "./utils"
+import { validateAndTrackUsage } from "@/lib/api" // Correct import for validateAndTrackUsage
 
 export const maxDuration = 60
 
