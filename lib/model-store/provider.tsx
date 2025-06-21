@@ -22,7 +22,7 @@ type UserKeyStatus = {
 }
 
 type ModelContextType = {
-  models: ModelConfig[]
+  models: ModelConfig[] // This will only contain openrouter model
   userKeyStatus: UserKeyStatus
   isLoading: boolean
   refreshModels: () => Promise<void>
@@ -33,7 +33,7 @@ type ModelContextType = {
 const ModelContext = createContext<ModelContextType | undefined>(undefined)
 
 export function ModelProvider({ children }: { children: React.ReactNode }) {
-  const [models, setModels] = useState<ModelConfig[]>([])
+  const [models, setModels] = useState<ModelConfig[]>([]) // This will only store openrouter model
   const [userKeyStatus, setUserKeyStatus] = useState<UserKeyStatus>({
     openrouter: false,
     openai: false,
@@ -45,12 +45,17 @@ export function ModelProvider({ children }: { children: React.ReactNode }) {
   })
   const [isLoading, setIsLoading] = useState(false)
 
+  // Fetch only the openrouter model
   const fetchModels = useCallback(async () => {
     try {
       const response = await fetchClient("/api/models")
       if (response.ok) {
         const data = await response.json()
-        setModels(data.models || [])
+        // Filter out all models except openrouter
+        const openrouterModel = data.models?.filter(
+          (model: ModelConfig) => model.name === "openrouter"
+        ) || []
+        setModels(openrouterModel) // Set only openrouter model
       }
     } catch (error) {
       console.error("Failed to fetch models:", error)
@@ -114,7 +119,7 @@ export function ModelProvider({ children }: { children: React.ReactNode }) {
   return (
     <ModelContext.Provider
       value={{
-        models,
+        models, // Only openrouter model will be here
         userKeyStatus,
         isLoading,
         refreshModels,
