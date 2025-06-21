@@ -36,11 +36,19 @@ export async function POST(req: Request) {
       )
     }
 
+    // Get supabase object for logging
+    const supabase = await validateAndTrackUsage({
+      userId,
+      model,
+      isAuthenticated,
+    })
+
     const userMessage = messages[messages.length - 1]
 
-    if (userMessage?.role === "user") {
-      // Log user message here
+    if (userMessage?.role === "user" && supabase) {
+      // Log user message with the supabase object
       await logUserMessage({
+        supabase,
         userId,
         chatId,
         content: userMessage.content,
@@ -63,7 +71,7 @@ export async function POST(req: Request) {
         undefined
     }
 
-    // Prepare the API payload
+    // Prepare the API payload for HuggingFace
     const payload = {
       inputs: {
         prompt: effectiveSystemPrompt + "\n" + userMessage.content, // Sending the system prompt + user message to HuggingFace
@@ -98,10 +106,11 @@ export async function POST(req: Request) {
 
     const assistantMessage = responseData.message
 
-    // Log assistant message
-    if (userId) {
+    // Log assistant message if supabase is available
+    if (userId && supabase) {
       // Assuming a `storeAssistantMessage` method to store the assistant's response
       await storeAssistantMessage({
+        supabase,
         chatId,
         messages: [
           {
